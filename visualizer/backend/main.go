@@ -11,6 +11,7 @@ import (
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Allow all origins (you can restrict this if needed)
+		// It is overly permissive, used only for demo purposes
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -42,12 +43,10 @@ func addToCacheHandler(cache *lru.ObservableCache) http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
-			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		if payload.Key == "" || payload.Value == "" {
 			http.Error(w, "key and value must not be empty", http.StatusBadRequest)
-			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 

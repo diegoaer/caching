@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// ObservableCacheItem represents an item in the observable cache state.
+// This is intended to be used for demo purposes, where we want to return the state of the cache as a JSON object.
 type ObservableCacheItem struct {
 	Key       string    `json:"key"`
 	Value     string    `json:"value"` // Value is stored as a string for JSON serialization
