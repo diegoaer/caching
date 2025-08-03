@@ -1,4 +1,4 @@
-# LRU CACHE WITH TTL
+# LRU cache with TTL
 
 This is a simple in-memory [LRU cache](https://en.wikipedia.org/wiki/Cache_replacement_policies#Least_Recently_Used_(LRU)) implemented in GO, complete with TTL expiration, observability and a visual demo.
 
