@@ -8,9 +8,24 @@ This is a portfolio project. Caching is essential for building web applications 
 
 ### Design Musings
 
-## Mutex
+#### Architecture of a cache-heavy application
 
-To create a thread safe version of the LRU cache I used `sync.Mutex`, on the surface it would seem like using `sync.RWMutex` but it requires duplicating the LRU code for `SafeLRUCache` AND, since the LRU cache re-orders itself when an item is read, leads to minimal gains.
+While an in-memory cache like this LRU implementation is a useful first layer for reducing latency and offloading repeated work, it is not sufficient on its own for applications handling heavy or distributed workloads.
+
+In a production system, a multi-tiered caching architecture is often more appropriate. A typical setup might include:
+- Local in-memory cache (like this one) for ultra-fast, process-local lookups
+- Distributed cache (e.g. Memcached or Redis) as a shared layer across multiple app instances
+- Persistent store (e.g. PostgreSQL, MongoDB) for source-of-truth data
+
+This layered approach reduces database load, improves fault tolerance, and ensures horizontal scalability.
+
+For even finer control, an additional layer can be added: a request-scoped cache, typically a lightweight, non-thread-safe in-memory cache that lives only during the lifecycle of a single request or function. This is useful for memoizing expensive computations or avoiding duplicate lookups in the same call stack.
+
+#### Mutex
+
+To make the LRU cache thread-safe, I wrapped its functions with a `sync.Mutex`. While it may seem like `sync.RWMutex` would be more appropriate since reads are typically more frequent, in this case, this approach offers minimal real benefit. Every Get() operation in the LRU cache modifies internal state by moving the accessed item to the front of the list to reflect recency. As a result, even read operations require a write lock.
+
+Using RWMutex would therefore require either locking with a write lock for reads (negating the advantage), or duplicating logic to handle read-only access without reordering, which could lead to inconsistencies.
 
 ## Features
 - ⚡ Thread-safe Go LRU cache
