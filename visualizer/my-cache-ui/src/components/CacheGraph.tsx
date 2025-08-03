@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
-import { ReactFlow, Position, useNodesState, useEdgesState, ReactFlowProvider } from '@xyflow/react';
-import type { Node, Edge } from "@xyflow/react";
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import {
+    ReactFlow,
+    useNodesState,
+    useEdgesState,
+    useReactFlow,
+    type Node,
+    type Edge,
+    type FinalConnectionState,
+} from '@xyflow/react';
 
-import LRUNode from './ui/LRUNode';
+import LRUNode from '@/components/ui/LRUNode';
 import { fetchCacheState, addToCache } from '@/lib/api';
 
 const nodeTypes = {
@@ -18,10 +25,11 @@ interface CacheEntry {
 }
 
 export default function CacheGraph() {
+    const reactFlowWrapper = useRef(null);
     const [addingNode, setAddingNode] = useState(false);
-    const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
+    const { screenToFlowPosition } = useReactFlow();
 
     const updateGraph = async () => {
         fetchCacheState()
@@ -57,58 +65,130 @@ export default function CacheGraph() {
                         };
                     });
                 });
-            })
+            });
     }
 
+    // 👇 Run once on mount
     useEffect(() => {
-        if (!addingNode) {
-            updateGraph();
-        }
-        const interval = setInterval(updateGraph, 5000); // Refresh every 5 seconds
-        return () => clearInterval(interval);
+        updateGraph();
     }, []);
+
+    useEffect(() => {
+        if (addingNode) return;
+
+        const interval = setInterval(updateGraph, 5000); // Refresh every 5 seconds
+
+        return () => clearInterval(interval);
+    }, [addingNode]);
 
 
     const onConnectStart = (_: unknown, params: { nodeId: string | null }) => {
         if (params.nodeId) {
-            setConnectingFrom(params.nodeId);
-        }
-    };
-
-    const onConnectEnd = async (pointerEvent: MouseEvent | TouchEvent) => {
-        // If the connection ends on empty space
-        const target = pointerEvent.target as HTMLElement;
-        const droppedOnCanvas = target?.classList.contains("react-flow__pane");
-
-        if (connectingFrom && droppedOnCanvas) {
-            // Show prompt or modal to add a new key
             setAddingNode(true);
-            const newKey = prompt("New key?");
-            const newValue = prompt("New value?");
-            if (newKey && newValue) {
-                addToCache(newKey, newValue).then(updateGraph);
-            }
-            setConnectingFrom(null);
-            setAddingNode(false);
         }
-
-        await updateGraph(); // Refresh graph
     };
 
+    const onConnectEnd = useCallback(
+        (event: React.MouseEvent | React.TouchEvent, connectionState: FinalConnectionState) => {
+            // when a connection is dropped on the pane it's not valid
+            if (!connectionState.isValid) {
+                // we need to remove the wrapper bounds, in order to get the correct position
+                const newKey = prompt("New key?");
+                const newValue = prompt("New value?");
+
+                if (newKey && newValue) {
+                    setNodes((prevNodes: Node[]) => {
+                        const { clientX, clientY } =
+                            'changedTouches' in event ? event.changedTouches[0] : event;
+                        const position = screenToFlowPosition({
+                            x: clientX,
+                            y: clientY,
+                        });
+                        // If the node already exists, we update it
+                        const existingNode = prevNodes.find(node => node.id === newKey);
+                        const newNode: Node = {
+                            id: newKey,
+                            type: 'lruNode',
+                            position,
+                            data: {
+                                key: newKey,
+                                value: newValue,
+                                ttl: undefined,
+                                isFirst: false,
+                                isLast: false,
+                                prev: null,
+                                next: null,
+                            },
+                        };
+                        if (existingNode) {
+                            return prevNodes.map(
+                                node => node.id === newKey ? newNode : node
+                            );
+                        } else {
+                            return [...prevNodes, newNode];
+                        }
+                    });
+                    setEdges((prevEdges: Edge[]) => {
+                        // We need to create an edge where the node was previously connected
+                        const replacedEdge = {
+                            source: null,
+                            target: null,
+                        }
+                        const filteredEdges = prevEdges.map(edge => {
+                            // If the edge is connected to the new node, we remove it
+                            if (edge.source === newKey || edge.target === newKey) {
+                                if (edge.source === newKey) {
+                                    replacedEdge.target = edge.target;
+                                } else {
+                                    replacedEdge.source = edge.source;
+                                }
+                                return null;  // If the node already exists, we remove the previous edges
+                            }
+                            return edge;
+                        });
+                        return [
+                            ...filteredEdges,
+                            {
+                                id: `${newKey}->${connectionState.fromNode.id}`,
+                                source: newKey,
+                                target: connectionState.fromNode.id,
+                                animated: true,
+                                style: { stroke: '#888' }
+                            },
+                            replacedEdge.source && replacedEdge.target ? {
+                                id: `${replacedEdge.source}->${replacedEdge.target}`,
+                                source: replacedEdge.source,
+                                target: replacedEdge.target,
+                                animated: true,
+                                style: { stroke: '#888' }
+                            } : null
+                        ].filter(edge => edge !== null); // Remove any null edges
+                    });
+                    setAddingNode(false);
+                    addToCache(newKey, newValue);
+                } else {
+                    setAddingNode(false);
+                }
+            }
+        },
+        [screenToFlowPosition],
+    );
     return (
-        <div style={{ width: '100%', height: '500px' }}>
-            <ReactFlowProvider>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    onNodesChange={onNodesChange}
-                    onEdgesChange={onEdgesChange}
-                    nodeTypes={nodeTypes}
-                    onConnectStart={onConnectStart}
-                    onConnectEnd={onConnectEnd}
-                    fitView
-                />
-            </ReactFlowProvider>
+        <div
+            style={{ width: '100%', height: '500px' }}
+            className="wrapper"
+            ref={reactFlowWrapper}
+        >
+            <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                nodeTypes={nodeTypes}
+                onConnectStart={onConnectStart}
+                onConnectEnd={onConnectEnd}
+                fitView
+            />
         </div>
     );
 }
