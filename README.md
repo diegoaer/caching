@@ -6,6 +6,12 @@ This is a simple in-memory [LRU cache](https://en.wikipedia.org/wiki/Cache_repla
 
 This is a portfolio project. Caching is essential for building web applications that scale, so I set out to implement one type of cache that would be useful in a real-world application. To make it easier to understand and demo, I also built a small visualizer.
 
+### Design Musings
+
+## Mutex
+
+To create a thread safe version of the LRU cache I used `sync.Mutex`, on the surface it would seem like using `sync.RWMutex` but it requires duplicating the LRU code for `SafeLRUCache` AND, since the LRU cache re-orders itself when an item is read, leads to minimal gains.
+
 ## Features
 - ⚡ Thread-safe Go LRU cache
 - ⏱️ Optional TTL support
